@@ -13,12 +13,7 @@ use solana_sdk::{
     signer::Signer,
 };
 use std::{
-    fmt::Write as _,
-    fs::{self, File},
-    io::Write as _,
-    path::Path,
-    process::Stdio,
-    str::FromStr,
+    env, fmt::Write as _, fs::{self, File}, io::Write as _, path::{Path, PathBuf}, process::Stdio, str::FromStr
 };
 
 /// Program initialization template
@@ -33,6 +28,32 @@ pub enum ProgramTemplate {
 
 /// Create a program from the given name and template.
 pub fn create_program(name: &str, template: ProgramTemplate) -> Result<()> {
+    let mut current_dir = env::current_dir()?;
+    let mut workspace_found = false;
+    
+    while !workspace_found {
+        if PathBuf::from(&current_dir).join("Cargo.toml").exists() {
+            workspace_found = true;
+        } else {
+            current_dir = current_dir.parent().expect("Failed to move up one directory").to_path_buf();
+        }
+    }
+
+    // If a workspace was found, use it; otherwise, create a new one
+    if workspace_found {
+        println!("Using existing workspace at {}", current_dir.display());
+    } else {
+        println!("Creating new workspace at {}", current_dir.display());
+        // Create new workspace files here
+        let mut workspace_cargo_toml = String::new();
+        workspace_cargo_toml.push_str("[workspace]\n");
+        workspace_cargo_toml.push_str("members = [\n");
+        workspace_cargo_toml.push_str(&format!("\"{}\",\n", name));
+        workspace_cargo_toml.push_str("]\n");
+
+        fs::write(current_dir.join("Cargo.toml"), workspace_cargo_toml)?;
+    }
+
     let program_path = Path::new("programs").join(name);
     let common_files = vec![
         ("Cargo.toml".into(), workspace_manifest().into()),
@@ -45,8 +66,11 @@ pub fn create_program(name: &str, template: ProgramTemplate) -> Result<()> {
         ProgramTemplate::Multiple => create_program_template_multiple(name, &program_path),
     };
 
-    create_files(&[common_files, template_files].concat())
+    create_files(&[common_files, template_files].concat())?;
+
+    Ok(())
 }
+
 
 /// Create a program with a single `lib.rs` file.
 fn create_program_template_single(name: &str, program_path: &Path) -> Files {
